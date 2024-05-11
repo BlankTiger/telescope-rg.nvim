@@ -2,6 +2,10 @@
 
 [Telescope](https://github.com/nvim-telescope/telescope.nvim) extension gives user the ability to pick and choose [ripgrep](https://github.com/BurntSushi/ripgrep) options on the fly.
 
+
+https://github.com/BlankTiger/telescope-rg.nvim/assets/16402420/8d72ffa5-e695-43b4-9a58-e75978cda2dd
+
+
 # Requirements
 
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
