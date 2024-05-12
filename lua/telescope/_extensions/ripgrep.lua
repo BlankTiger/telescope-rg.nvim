@@ -9,23 +9,44 @@ Ripgrep_config = {
     path_display = { "absolute" },
 }
 
-local function split(txt, pattern)
-    local tbl = {}
-    local fpat = "(.-)" .. pattern
-    local last_end = 1
-    local s, e, cap = txt:find(fpat, 1)
-    while s do
-        if s ~= 1 or cap ~= "" then
-            table.insert(tbl, cap)
+local function split(command)
+    local cmd_split = {}
+    local start = 1
+    local in_quotes = false
+    local curr_quotes = "\""
+    for i = 1, #command do
+        local c = command:sub(i, i)
+        local next = ""
+
+        if (c == "\"" or c == "'") and not in_quotes then
+            in_quotes = true
+            curr_quotes = c
+            start = i
+        elseif c == curr_quotes and in_quotes then
+            in_quotes = false
+            next = command:sub(start + 1, i - 1)
+            start = i + 1
         end
-        last_end = e + 1
-        s, e, cap = txt:find(fpat, last_end)
+        if in_quotes then
+            goto continue
+        end
+
+        if c == " " then
+            next = command:sub(start, i - 1)
+            start = i + 1
+        end
+
+        if i == #command and next:len() == 0 then
+            next = command:sub(start, i)
+        end
+
+        if next:len() > 0 then
+            table.insert(cmd_split, next)
+        end
+        ::continue::
     end
-    if last_end <= #txt then
-        cap = txt:sub(last_end)
-        table.insert(tbl, cap)
-    end
-    return tbl
+
+    return cmd_split
 end
 
 local function get_opts(opts)
@@ -43,7 +64,7 @@ local ripgrep_text = function(opts)
         if not prompt or prompt == "" then
             return nil
         end
-        local rg_args = split(prompt, " ")
+        local rg_args = split(prompt)
         return rg_args
     end, opts.entry_maker or make_entry.gen_from_vimgrep(opts))
 
@@ -65,7 +86,7 @@ local ripgrep_files = function(opts)
         if not prompt or prompt == "" then
             return nil
         end
-        local rg_args = split(prompt, " ")
+        local rg_args = split(prompt)
         return rg_args
     end, opts.entry_maker or make_entry.gen_from_file(opts))
 
