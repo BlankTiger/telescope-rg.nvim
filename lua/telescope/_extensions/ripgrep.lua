@@ -6,7 +6,8 @@ local conf = require("telescope.config").values
 local sorters = require("telescope.sorters")
 local utils = require("telescope.utils")
 Ripgrep_config = {
-    path_display = { "absolute" },
+    default_args_text = "--vimgrep",
+    default_args_files = "--files -g",
 }
 
 local function split(command)
@@ -54,7 +55,9 @@ local function get_opts(opts)
     for k, v in pairs(Ripgrep_config) do
         config[k] = v
     end
-    vim.tbl_extend("force", config, opts)
+    for k, v in pairs(opts) do
+        config[k] = v
+    end
     return config
 end
 
@@ -75,7 +78,7 @@ local ripgrep_text = function(opts)
             finder = live_grepper,
             previewer = conf.grep_previewer(opts),
             sorter = sorters.highlighter_only(opts),
-            default_text = "rg --vimgrep ",
+            default_text = "rg " .. Ripgrep_config.default_args_text .. " ",
         })
         :find()
 end
@@ -97,7 +100,7 @@ local ripgrep_files = function(opts)
             finder = live_grepper,
             previewer = conf.file_previewer(opts),
             -- sorter = conf.file_sorter(opts),
-            default_text = "rg --files -g ",
+            default_text = "rg " .. Ripgrep_config.default_args_files .. " ",
         })
         :find()
 end
@@ -105,6 +108,9 @@ end
 return require("telescope").register_extension({
     setup = function(ext_config, config)
         for k, v in pairs(ext_config) do
+            Ripgrep_config[k] = v
+        end
+        for k, v in pairs(config) do
             Ripgrep_config[k] = v
         end
     end,
