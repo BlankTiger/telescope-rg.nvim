@@ -63,11 +63,21 @@ end
 
 local ripgrep_text = function(opts)
     opts = get_opts(opts)
+    local path = ""
+    if opts.curr_file_dir then
+        path = vim.fn.expand("%:p:h")
+        local start = "oil:///"
+        if path:sub(1, #start) == start then
+            path = path:sub(#start, #path)
+        end
+    end
+
     local live_grepper = finders.new_job(function(prompt)
         if not prompt or prompt == "" then
             return nil
         end
         local rg_args = split(prompt)
+        table.insert(rg_args, path)
         return rg_args
     end, opts.entry_maker or make_entry.gen_from_vimgrep(opts))
 
@@ -114,5 +124,9 @@ return require("telescope").register_extension({
             Ripgrep_config[k] = v
         end
     end,
-    exports = { ripgrep_text = ripgrep_text, ripgrep_files = ripgrep_files },
+    exports = {
+        ripgrep_text = ripgrep_text,
+        ripgrep_text_curr_file_dir = ripgrep_text_curr_file_dir,
+        ripgrep_files = ripgrep_files,
+    },
 })

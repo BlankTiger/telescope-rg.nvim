@@ -24,7 +24,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
             require("telescope").load_extension("ripgrep")
         end,
     },
-    opts = { 
+    opts = {
         -- your config goes here
     }
 }
@@ -36,12 +36,19 @@ You can configure two pickers that specialize in two different things:
 
 ```lua
 -- FILE SEARCHER
-vim.api.nvim_set_keymap("n", "<leader>sf", function()
+vim.keymap.set("n", "<leader>sf", function()
     require("telescope").extensions.ripgrep.ripgrep_files({})
 end, {})
 
 -- TEXT SEARCHER
-vim.api.nvim_set_keymap("n", "<leader>st", function()
+vim.keymap.set("n", "<leader>st", function()
     require("telescope").extensions.ripgrep.ripgrep_text({})
+end, {})
+
+-- TEXT SEARCHER IN DIR OF CURRENTLY OPEN FILE
+vim.keymap.set("n", "<leader>sa", function()
+    require("telescope").extensions.ripgrep.ripgrep_text({
+        curr_file_dir = true,
+    })
 end, {})
 ```
