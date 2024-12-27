@@ -61,7 +61,7 @@ local function get_opts(opts)
     return config
 end
 
-local ripgrep_text = function(opts)
+local function ripgrep_text(opts)
     opts = get_opts(opts)
     local path = ""
     if opts.curr_file_dir then
@@ -77,7 +77,9 @@ local ripgrep_text = function(opts)
             return nil
         end
         local rg_args = split(prompt)
-        table.insert(rg_args, path)
+        if path ~= "" then
+            table.insert(rg_args, path)
+        end
         return rg_args
     end, opts.entry_maker or make_entry.gen_from_vimgrep(opts))
 
