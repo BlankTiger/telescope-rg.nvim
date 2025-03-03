@@ -10,6 +10,176 @@ Ripgrep_config = {
     default_args_files = "--files -g",
 }
 
+-- Helper function to calculate factorial
+math.factorial = function(n)
+    if n <= 1 then
+        return 1
+    else
+        return n * math.factorial(n - 1)
+    end
+end
+
+local function escape_pattern(pattern)
+    -- Escape the pattern to handle special regex characters
+    return pattern:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+end
+
+-- Helper function to generate all permutations of patterns
+local function generate_permutations(patterns)
+    -- Base case
+    if #patterns <= 1 then
+        return { patterns }
+    end
+
+    local result = {}
+    for i = 1, #patterns do
+        -- Take the current pattern and generate permutations of the rest
+        local first = patterns[i]
+        local rest = {}
+        for j = 1, #patterns do
+            if j ~= i then
+                table.insert(rest, patterns[j])
+            end
+        end
+
+        -- Recursively generate permutations of the rest
+        local sub_permutations = generate_permutations(rest)
+
+        -- Add the current pattern to the front of each sub-permutation
+        for _, perm in ipairs(sub_permutations) do
+            local new_perm = { first }
+            for _, p in ipairs(perm) do
+                table.insert(new_perm, p)
+            end
+            table.insert(result, new_perm)
+        end
+    end
+
+    return result
+end
+
+local function process_strict_consecutive(args, delimiter_indices)
+    -- Sort the delimiter indices
+    table.sort(delimiter_indices)
+
+    -- Extract all patterns
+    local patterns = {}
+    local first_pattern_index = delimiter_indices[1] - 1
+    table.insert(patterns, args[first_pattern_index])
+
+    for i, index in ipairs(delimiter_indices) do
+        if index + 1 <= #args then
+            table.insert(patterns, args[index + 1])
+        end
+    end
+
+    -- Create a new set of arguments preserving everything up to the first pattern
+    local new_args = {}
+    for i = 1, first_pattern_index - 1 do
+        table.insert(new_args, args[i])
+    end
+
+    -- Add multiline flag
+    table.insert(new_args, "--multiline")
+
+    -- Construct a regex for consecutive lines
+    local regex = ""
+    for i, pattern in ipairs(patterns) do
+        local escaped_pattern = escape_pattern(pattern)
+
+        if i > 1 then
+            -- Match the rest of the line after the previous pattern, then exactly one newline,
+            -- then the start of the next line up to the current pattern
+            regex = regex .. "[^\\n]*\\n[^\\n]*"
+        end
+
+        regex = regex .. escaped_pattern
+    end
+
+    -- Add the PCRE2 flag and the regex to the new arguments
+    table.insert(new_args, "--pcre2")
+    table.insert(new_args, "-e")
+    table.insert(new_args, regex)
+
+    return new_args
+end
+
+local function process_bidirectional_consecutive(args, delimiter_indices)
+    -- Extract patterns between the || delimiters
+    table.sort(delimiter_indices)
+
+    local patterns = {}
+    -- Add the first pattern (before the first delimiter)
+    local first_pattern_index = delimiter_indices[1] - 1
+    if first_pattern_index >= 1 then
+        table.insert(patterns, args[first_pattern_index])
+    end
+
+    -- Add all patterns after each delimiter
+    for i, index in ipairs(delimiter_indices) do
+        if index + 1 <= #args and args[index + 1] ~= "||" then
+            table.insert(patterns, args[index + 1])
+        end
+    end
+
+    if #patterns < 2 then
+        -- Not enough patterns to create a meaningful bidirectional search
+        return args
+    end
+
+    -- Create a new set of arguments preserving everything up to the first pattern
+    local new_args = {}
+    for i = 1, first_pattern_index - 1 do
+        table.insert(new_args, args[i])
+    end
+
+    -- Add multiline flag
+    table.insert(new_args, "--multiline")
+
+    -- Warn if there are many patterns (permutations grow factorially)
+    if #patterns > 4 then
+        print(
+            "Warning: Using || with "
+                .. #patterns
+                .. " patterns will generate "
+                .. math.factorial(#patterns)
+                .. " permutations. This may impact performance."
+        )
+    end
+
+    -- Generate all permutations of the patterns
+    local permutations = generate_permutations(patterns)
+
+    -- Construct a regex for each permutation and join with OR
+    local regex_parts = {}
+    for _, permutation in ipairs(permutations) do
+        local regex_part = ""
+        for i, pattern in ipairs(permutation) do
+            local escaped_pattern = escape_pattern(pattern)
+
+            if i > 1 then
+                -- Match the rest of the line after the previous pattern, then exactly one newline,
+                -- then the start of the next line up to the current pattern
+                regex_part = regex_part .. "[^\\n]*\\n[^\\n]*"
+            end
+
+            regex_part = regex_part .. escaped_pattern
+        end
+
+        table.insert(regex_parts, regex_part)
+    end
+
+    -- Join all permutations with OR operator
+    local regex = "(" .. table.concat(regex_parts, "|") .. ")"
+
+    -- Add the PCRE2 flag and the regex to the new arguments
+    table.insert(new_args, "--pcre2")
+    table.insert(new_args, "-e")
+    table.insert(new_args, regex)
+
+    return new_args
+end
+
 local function split(command)
     local cmd_split = {}
     local start = 1
@@ -51,64 +221,30 @@ local function split(command)
 end
 
 local function process_consecutive_search(args)
-    -- Check if there are any || in the arguments
-    local delimiter_indices = {}
+    -- Check if there are any >> or || in the arguments
+    local strict_delimiter_indices = {}
+    local bidirectional_delimiter_indices = {}
+
     for i, arg in ipairs(args) do
-        if arg == "||" then
-            table.insert(delimiter_indices, i)
+        if arg == ">>" then
+            table.insert(strict_delimiter_indices, i)
+        elseif arg == "||" then
+            table.insert(bidirectional_delimiter_indices, i)
         end
     end
 
-    if #delimiter_indices == 0 then
+    -- If no delimiters, return original args
+    if #strict_delimiter_indices == 0 and #bidirectional_delimiter_indices == 0 then
         return args
     end
 
-    -- Sort the delimiter indices (just to be safe)
-    table.sort(delimiter_indices)
-
-    -- Extract all patterns
-    local patterns = {}
-    local first_pattern_index = delimiter_indices[1] - 1
-    table.insert(patterns, args[first_pattern_index])
-
-    for i, index in ipairs(delimiter_indices) do
-        if index + 1 <= #args then
-            table.insert(patterns, args[index + 1])
-        end
+    -- We'll process one type of delimiter at a time
+    -- Prioritize strict (>>) if both are present
+    if #strict_delimiter_indices > 0 then
+        return process_strict_consecutive(args, strict_delimiter_indices)
+    else
+        return process_bidirectional_consecutive(args, bidirectional_delimiter_indices)
     end
-
-    -- Create a new set of arguments preserving everything up to the first pattern
-    local new_args = {}
-    for i = 1, first_pattern_index - 1 do
-        table.insert(new_args, args[i])
-    end
-
-    -- Add multiline flag
-    table.insert(new_args, "--multiline")
-
-    -- Construct a regex for consecutive lines
-    -- For two patterns, the regex would look like:
-    -- pattern1[^\n]*\n[^\n]*pattern2
-    local regex = ""
-    for i, pattern in ipairs(patterns) do
-        -- Escape the pattern to handle special regex characters
-        local escaped_pattern = pattern:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
-
-        if i > 1 then
-            -- Match the rest of the line after the previous pattern, then exactly one newline,
-            -- then the start of the next line up to the current pattern
-            regex = regex .. "[^\\n]*\\n[^\\n]*"
-        end
-
-        regex = regex .. escaped_pattern
-    end
-
-    -- Add the PCRE2 flag and the regex to the new arguments
-    table.insert(new_args, "--pcre2")
-    table.insert(new_args, "-e")
-    table.insert(new_args, regex)
-
-    return new_args
 end
 
 local function get_opts(opts)
