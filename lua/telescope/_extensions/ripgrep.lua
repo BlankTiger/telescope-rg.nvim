@@ -50,6 +50,67 @@ local function split(command)
     return cmd_split
 end
 
+local function process_consecutive_search(args)
+    -- Check if there are any || in the arguments
+    local delimiter_indices = {}
+    for i, arg in ipairs(args) do
+        if arg == "||" then
+            table.insert(delimiter_indices, i)
+        end
+    end
+
+    if #delimiter_indices == 0 then
+        return args
+    end
+
+    -- Sort the delimiter indices (just to be safe)
+    table.sort(delimiter_indices)
+
+    -- Extract all patterns
+    local patterns = {}
+    local first_pattern_index = delimiter_indices[1] - 1
+    table.insert(patterns, args[first_pattern_index])
+
+    for i, index in ipairs(delimiter_indices) do
+        if index + 1 <= #args then
+            table.insert(patterns, args[index + 1])
+        end
+    end
+
+    -- Create a new set of arguments preserving everything up to the first pattern
+    local new_args = {}
+    for i = 1, first_pattern_index - 1 do
+        table.insert(new_args, args[i])
+    end
+
+    -- Add multiline flag
+    table.insert(new_args, "--multiline")
+
+    -- Construct a regex for consecutive lines
+    -- For two patterns, the regex would look like:
+    -- pattern1[^\n]*\n[^\n]*pattern2
+    local regex = ""
+    for i, pattern in ipairs(patterns) do
+        -- Escape the pattern to handle special regex characters
+        local escaped_pattern = pattern:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+
+        if i > 1 then
+            -- Match the rest of the line after the previous pattern, then exactly one newline,
+            -- then the start of the next line up to the current pattern
+            regex = regex .. "[^\\n]*\\n[^\\n]*"
+        end
+
+        regex = regex .. escaped_pattern
+    end
+
+    -- Add the PCRE2 flag and the regex to the new arguments
+    table.insert(new_args, "--pcre2")
+    table.insert(new_args, "-e")
+    table.insert(new_args, regex)
+
+    return new_args
+end
+
 local function get_opts(opts)
     local config = {}
     for k, v in pairs(Ripgrep_config) do
@@ -76,7 +137,10 @@ local function ripgrep_text(opts)
         if not prompt or prompt == "" then
             return nil
         end
+
         local rg_args = split(prompt)
+        rg_args = process_consecutive_search(rg_args)
+
         if path ~= "" then
             table.insert(rg_args, path)
         end
@@ -95,13 +159,22 @@ local function ripgrep_text(opts)
         :find()
 end
 
+local function ripgrep_text_curr_file_dir(opts)
+    opts = get_opts(opts)
+    opts.curr_file_dir = true
+    return ripgrep_text(opts)
+end
+
 local ripgrep_files = function(opts)
     opts = get_opts(opts)
     local live_grepper = finders.new_job(function(prompt)
         if not prompt or prompt == "" then
             return nil
         end
+
         local rg_args = split(prompt)
+        rg_args = process_consecutive_search(rg_args)
+
         return rg_args
     end, opts.entry_maker or make_entry.gen_from_file(opts))
 
